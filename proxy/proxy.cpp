@@ -13,25 +13,12 @@
 //   Organization:  USC
 //
 // =====================================================================================
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <linux/if_tun.h>
-#include <sys/ioctl.h>
-#include <net/if.h>
-#include <fcntl.h>
 /*class define*/
 #include "proxy.h"
 using namespace std;
 
-/****************************private method*******************************/
-void Proxy::get_eth0_ip() {
+/***************************private method*******************************/
+struct in_addr Proxy::get_eth_by_name(const char *ethn) {
 	int fd;
 	struct ifreq ifr;
 
@@ -41,15 +28,24 @@ void Proxy::get_eth0_ip() {
 	ifr.ifr_addr.sa_family = AF_INET;
 
 	/* I want IP address attached to "eth0" */
-	strncpy(ifr.ifr_name, "eth0", IFNAMSIZ-1);
+	strncpy(ifr.ifr_name, ethn, IFNAMSIZ-1);
 
 	ioctl(fd, SIOCGIFADDR, &ifr);
 
 	close(fd);
 
 	/* display result */
-	sprintf(Eth0,"%s", inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
-	printf("proxy ip:%s\n",Eth0);
+	return ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr;
+}
+void Proxy::get_all_ethn() {
+	int i = 0;
+	char ethn[5];
+	while (i < MAXETHADDR) {
+		memset(ethn,'0',sizeof ethn);
+		sprintf(ethn,"eth%d",i);
+		ethAddr[i] = get_eth_by_name(ethn);
+		i++;
+	}
 }
 /*
  *allocate tunnel fd which is used to read packet from tunnel
@@ -84,30 +80,31 @@ int Proxy::tun_alloc(char *dev, int flags) {
 	strcpy(dev, ifr.ifr_name);
 	return fd;
 }
-/****************************public method********************************/
+/***************************public method********************************/
 Proxy::Proxy() 
 {
 	memset(recvBuf, 0, sizeof recvBuf);
 	memset(sendBuf, 0, sizeof sendBuf);
 	//sprintf(Eth0,"localhost");
-	get_eth0_ip();
-	port = 19121;
-	MaxNumRouter = 4;
-	NumRouterConn = 0;
-	routerAddr = NULL;
-	routerTail = NULL;
+	get_all_ethn();
+	udpport = 19121;
+	tcpport = 0;
+	rawport = 0;
+	udpfd = 0;
+	tcpfd = 0;
+	rawfd = 0;
 }
 
 /*
  *create socket for proxy
  * */
-void Proxy::proxy_setup() {
+void Proxy::udp_sock_setup(int ethIndex) {
 	struct addrinfo hints, *res;
 	char setupPort[5];
 	int rv;
 
 	/*set setupPort*/
-	sprintf(setupPort,"%d",port);
+	sprintf(setupPort,"%d",udpport);
 
 	/*type of socket*/
 	memset(&hints, 0, sizeof hints);
@@ -115,7 +112,7 @@ void Proxy::proxy_setup() {
 	hints.ai_socktype = SOCK_DGRAM;
 
 	/*get socket creation information*/
-	if((rv = getaddrinfo(Eth0, setupPort, &hints, &res)) == -1) {
+	if((rv = getaddrinfo(inet_ntoa(ethAddr[ethIndex]), setupPort, &hints, &res)) == -1) {
 		fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(rv));
 		exit(1);
 	}
@@ -125,99 +122,164 @@ void Proxy::proxy_setup() {
 		perror("proxy: socket()");
 		exit(1);
 	}
-	sockfd = rv;
+
+	/*__udpfd__*/
+	udpfd = rv;
 
 	/*bind*/
-	if((rv = bind(sockfd, res->ai_addr, res->ai_addrlen)) == -1) {
-		close(sockfd);
+	if((rv = bind(udpfd, res->ai_addr, res->ai_addrlen)) == -1) {
+		close(udpfd);
 		perror("proxy:bind()");
 		exit(1);
 	}
 	freeaddrinfo(res);
-	
+}
+void Proxy::tcp_sock_setup(int ethIndex) {
+	struct addrinfo hints, *res;
+	char setupPort[5];
+	int rv;
+
+	/*set setupPort*/
+	sprintf(setupPort,"%d",udpport);
+
+	/*type of socket*/
+	memset(&hints, 0, sizeof hints);
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+
+	/*get socket creation information*/
+	if((rv = getaddrinfo(inet_ntoa(ethAddr[ethIndex]), setupPort, &hints, &res)) == -1) {
+		fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(rv));
+		exit(1);
+	}
+
+	/*create socket*/
+	if((rv = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) == -1) {
+		perror("proxy: socket()");
+		exit(1);
+	}
+
+	/*__udpfd__*/
+	tcpfd = rv;
+
+	/*bind*/
+	if((rv = bind(tcpfd, res->ai_addr, res->ai_addrlen)) == -1) {
+		close(udpfd);
+		perror("proxy:bind()");
+		exit(1);
+	}
+	freeaddrinfo(res);
+}
+void Proxy::tunnel_setup(char *tunName) {
 	/*setup tunnel*/
     char tun_name[IFNAMSIZ];
-    strcpy(tun_name, "tun1");
+    strcpy(tun_name, tunName);
 	tunfd = tun_alloc(tun_name, IFF_TUN | IFF_NO_PI);
+}
+void Proxy::proxy_setup() {
+	char tunN[5];
+	udp_sock_setup(1);
+	//tcp_sock_setup();
+	memset(tunN,0,sizeof tunN);
+	sprintf(tunN,"tun1");
+	tunnel_setup(tunN);
 
 	/*setup complete*/
 	printf("proxy: socket setup complete\n");
 }
-
-void Proxy::proxy_routerReady() {
+struct sockaddr Proxy::proxy_udp_recv() {
 	/*receive packet from router*/
-	while (NumRouterConn < MaxNumRouter) {
-		struct sockaddr their_addr;
-		socklen_t addr_len = sizeof their_addr;
+	struct sockaddr their_addr;
+	socklen_t addr_len = sizeof their_addr;
 
-		memset(recvBuf, 0, sizeof recvBuf);
-		recvLen = recvfrom(sockfd, recvBuf, MAXBUFLEN - 1, 0, &their_addr, &addr_len);
-		if(recvLen == -1) {
-			perror("proxy_routerReady()");
-			exit(1);
+	memset(recvBuf, 0, sizeof recvBuf);
+	recvLen = recvfrom(udpfd, recvBuf, MAXBUFLEN - 1, 0, &their_addr, &addr_len);
+	if(recvLen == -1) {
+		perror("proxy_routerReady()");
+		exit(1);
+	}
+
+	printf("___udp receive from____\n");
+	sockaddr_info(&their_addr);
+	//proxy_add_routerAddr(&their_addr);
+	//proxy_check_routerList();
+	recvBuf[recvLen] = '\0';
+	return their_addr;
+}
+
+void Proxy::router_ready_check() {
+	int i = 0;
+	int ii = 0;
+	struct sockaddr tmp;
+	while ((i+ii) < MAXROUTER) {
+		tmp = proxy_udp_recv();
+		if(tmp.sa_family == AF_INET) {
+			memcpy(&routerSock[i],&tmp,sizeof tmp);
+			printf("__check after storage_\n");
+			sockaddr_info((struct sockaddr*)&routerSock[i]);
+			i++;
+		} else {
+			memcpy(&routerSock6[i],&tmp,sizeof tmp);
+			printf("__check after storage_\n");
+			sockaddr_info((struct sockaddr*)&routerSock6[i]);
+			ii++;
 		}
-		proxy_add_routerAddr(&their_addr);
-		//proxy_check_routerList();
-		recvBuf[recvLen] = '\0';
-		NumRouterConn++;
+		printf("received length %d: %s\n",recvLen,recvBuf);
 	}
 }
-
-void Proxy::proxy_add_routerAddr(sockaddr *sa) {
-	char s[INET6_ADDRSTRLEN];
-	connectInfo_t *newCI = new connectInfo_t;
-
-	/*initial new member*/
-	memset(newCI, 0, sizeof *newCI);
-	newCI->inAddr = ((struct sockaddr_in *)sa)->sin_addr;
-	sprintf(newCI->charAddr,"%s",inet_ntop(sa->sa_family, &(newCI->inAddr), s, sizeof s));
-	newCI->udp_port = ntohs(((struct sockaddr_in *)sa)->sin_port);
-	newCI->next = NULL;
-
-	/*print infomation*/
-	printf("----------client connected---------\n");
-	printf("Index: %d\n",NumRouterConn);
-	printf("IP: %s\n", newCI->charAddr);
-	printf("UDP port: %d\n", newCI->udp_port);
-	printf("TCP port: %d\n", newCI->tcp_port);
-	printf("-----------------------------------\n");
-
-	/*add to link list*/
-	if(routerAddr == NULL) {
-		routerAddr = newCI;	
-		routerTail = newCI;
+/*************************moniter****************************************/
+//void Proxy::proxy_routerList() {
+//	if(routerAddr == NULL) {
+//		printf("proxy: Router list is empty\n");
+//	} else {
+//		connectInfo_t *tmp = routerAddr;
+//		int count = 0;
+//		while(tmp != NULL) {
+//			printf("-----------------------------------\n");
+//			printf("Index: %d\n",count);
+//			printf("IP: %s\n", tmp->charAddr);
+//			printf("UDP port: %d\n", tmp->udp_port);
+//			printf("TCP port: %d\n", tmp->tcp_port);
+//			printf("-----------------------------------\n");
+//			tmp = tmp->next;
+//			count++;
+//		}
+//	}
+//}
+//
+void Proxy::sockaddr_info(struct sockaddr *sock) {
+	if(sock->sa_family == AF_INET) {
+		struct sockaddr_in *tmpSock = (struct sockaddr_in *) sock;
+		printf("%s:%u\n", inet_ntoa(tmpSock->sin_addr),ntohs(tmpSock->sin_port));
 	} else {
-		routerTail->next = newCI;
-		routerTail = newCI;
+		struct sockaddr_in6 *tmpSock = (struct sockaddr_in6 *)sock;
+		char s[INET6_ADDRSTRLEN];
+		inet_ntop(AF_INET6,&(tmpSock->sin6_addr),s,INET6_ADDRSTRLEN);
+		printf("%s:%u\n",s,ntohs(tmpSock->sin6_port));
 	}
 }
-
-void Proxy::proxy_routerList() {
-	if(routerAddr == NULL) {
-		printf("proxy: Router list is empty\n");
-	} else {
-		connectInfo_t *tmp = routerAddr;
-		int count = 0;
-		while(tmp != NULL) {
-			printf("-----------------------------------\n");
-			printf("Index: %d\n",count);
-			printf("IP: %s\n", tmp->charAddr);
-			printf("UDP port: %d\n", tmp->udp_port);
-			printf("TCP port: %d\n", tmp->tcp_port);
-			printf("-----------------------------------\n");
-			tmp = tmp->next;
-			count++;
-		}
+void Proxy::sock_info() {
+	printf("____sock info___\n");
+	printf("UDP sockfd: %d port: %d\n", udpfd, udpport);
+	printf("TCP sockfd: %d port: %d\n", tcpfd, tcpport);
+	printf("RAW sockfd: %d port: %d\n", rawfd, rawport);
+}
+void Proxy::ethn_info() {
+	int i = 0;
+	printf("____eth info___\n");
+	while(i<MAXETHADDR) {
+		printf("eth%d: %s\n",i,inet_ntoa(ethAddr[i]));
+		i++;
 	}
 }
-
+void Proxy::tun_info() {
+	printf("__tunnel info___\n");
+	printf("tunnel fd: %d\n",tunfd);
+}
 void Proxy::proxy_info() {
+	printf("-----------Proxy info-------------\n");
+	ethn_info();
+	sock_info();
+	tun_info();
 	printf("-----------------------------------\n");
-	printf("ip addr: %s\n", Eth0);
-	printf("socket fd: %d\n",sockfd);
-	printf("port: %d\n", port);
-	printf("router num: %d\n",NumRouterConn);
-	printf("-----------------------------------\n");
-	printf("Router info:\n");
-	proxy_routerList();
 }

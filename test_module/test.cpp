@@ -1,11 +1,11 @@
 // =====================================================================================
 //
-//       Filename:  main.cpp
+//       Filename:  test.cpp
 //
-//    Description:  test proxy class
+//    Description:  test
 //
 //        Version:  1.0
-//        Created:  02/12/2015 12:08:41 AM
+//        Created:  02/11/2015 11:34:59 PM
 //       Revision:  none
 //       Compiler:  g++
 //
@@ -20,14 +20,15 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
-#include "proxy.h"
 using namespace std;
-
+typedef struct aa{
+	int a;
+	char b[100];
+}aa_t;
 int main ( int argc, char *argv[] )
 {
-	Proxy new_proxy;
-	new_proxy.proxy_setup();
-	new_proxy.proxy_info();
-	new_proxy.router_ready_check();
+	aa_t *a = new aa_t;
+	cout<<sizeof *a<<endl;
+	memset(a, 0, sizeof *a);
 	return EXIT_SUCCESS;
 }				// ----------  end of function main  ----------
