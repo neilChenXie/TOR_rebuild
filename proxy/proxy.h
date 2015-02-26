@@ -33,7 +33,7 @@ class Proxy {
 private:
 	static const int MAXBUFLEN = 100;
 	static const int MAXETHADDR = 8;
-	static const int MAXROUTER = 4;
+	static const int MAXROUTER = 2;
 	/*characteristic*/
 	uint16_t udpport;
 	uint16_t tcpport;
@@ -68,14 +68,19 @@ public:
 
 	/*router setup*/
 	struct sockaddr proxy_udp_recv();
+	void proxy_tun_recv();
+	int proxy_tcp_connect(int ethIndex, int port);
+	int proxy_select_udp_tun();
 
 	/*print information*/
 	void proxy_info();
 	void sock_info();
 	void ethn_info();
 	void tun_info();
+	void router_info();
 	void sockaddr_info(struct sockaddr* sock);
 	//void proxy_routerList();
 	/*specific task related function*/
+	void proxy_TOR_run();
 	void router_ready_check();
 };

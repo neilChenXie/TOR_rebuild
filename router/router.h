@@ -14,26 +14,64 @@
 //
 // =====================================================================================
 #include "../protocol/protocol.h"
-#define	MAXMSGLEN 1024			// 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <linux/if_tun.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <fcntl.h>
+using namespace std;
 class Router {
 	private:
+		static const int MAXBUFLEN = 1024;			// 
+		static const int MAXETHADDR = 8;
+		static const int MAXPROXY = 1;
+		/*information*/
 		int router_index;
-		char recvBuf[MAXMSGLEN];
-		char sendBuf[MAXMSGLEN];
+		int udpPort;
+		int tcpPort;
+		int rawPort;
+		int udpfd;
+		int tcpfd;
+		int rawfd;
+		struct in_addr ethAddr[MAXETHADDR]; //VM config related
+		struct sockaddr proxySock[MAXPROXY];
+		/*communication*/
+		char recvBuf[MAXBUFLEN];
+		char sendBuf[MAXBUFLEN];
 		int recvLen;
 		int sendLen;
-		int udpPort;
-		char ethAddr[16];
-		char Eth0[16];
 
-		/*router info*/
-		void router_proxyip();
+		/*eth address get*/
+		struct in_addr get_eth_by_name(const char *ethn);
+		void get_all_ethn();
+
 		void router_myip();
 	public:
 		Router(int index);
+		/*rotuer setup*/
 		void router_setup();
-		void router_notify_proxy();
-		void send();
+		void udp_sock_setup(int ethIndex);
+		void tcp_sock_setup(int ethIndex);
+		void get_proxy_info();
+		/*communication*/
+		struct sockaddr router_udp_recv();
+		void router_udp_send(struct sockaddr *dstSock);
+
 		/*print info*/
-		void router_print_info();
+		void router_info();
+		void sock_info();
+		void ethn_info();
+		void proxy_info();
+		void sockaddr_info(struct sockaddr* sock);
+		/*specific task related function*/
+		void router_TOR_run();
+		void send_hello();
 };

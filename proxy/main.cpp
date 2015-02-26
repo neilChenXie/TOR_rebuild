@@ -26,8 +26,7 @@ using namespace std;
 int main ( int argc, char *argv[] )
 {
 	Proxy new_proxy;
-	new_proxy.proxy_setup();
-	new_proxy.proxy_info();
-	new_proxy.router_ready_check();
+	//new_proxy.router_ready_check();
+	new_proxy.proxy_TOR_run();
 	return EXIT_SUCCESS;
 }				// ----------  end of function main  ----------

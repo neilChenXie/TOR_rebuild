@@ -88,7 +88,7 @@ Proxy::Proxy()
 	//sprintf(Eth0,"localhost");
 	get_all_ethn();
 	udpport = 19121;
-	tcpport = 0;
+	tcpport = 19123;
 	rawport = 0;
 	udpfd = 0;
 	tcpfd = 0;
@@ -134,13 +134,14 @@ void Proxy::udp_sock_setup(int ethIndex) {
 	}
 	freeaddrinfo(res);
 }
+
 void Proxy::tcp_sock_setup(int ethIndex) {
 	struct addrinfo hints, *res;
 	char setupPort[5];
 	int rv;
 
 	/*set setupPort*/
-	sprintf(setupPort,"%d",udpport);
+	sprintf(setupPort,"%d",tcpport);
 
 	/*type of socket*/
 	memset(&hints, 0, sizeof hints);
@@ -170,16 +171,18 @@ void Proxy::tcp_sock_setup(int ethIndex) {
 	}
 	freeaddrinfo(res);
 }
+
 void Proxy::tunnel_setup(char *tunName) {
 	/*setup tunnel*/
     char tun_name[IFNAMSIZ];
     strcpy(tun_name, tunName);
 	tunfd = tun_alloc(tun_name, IFF_TUN | IFF_NO_PI);
 }
+
 void Proxy::proxy_setup() {
 	char tunN[5];
 	udp_sock_setup(1);
-	//tcp_sock_setup();
+	tcp_sock_setup(1);
 	memset(tunN,0,sizeof tunN);
 	sprintf(tunN,"tun1");
 	tunnel_setup(tunN);
@@ -187,6 +190,7 @@ void Proxy::proxy_setup() {
 	/*setup complete*/
 	printf("proxy: socket setup complete\n");
 }
+
 struct sockaddr Proxy::proxy_udp_recv() {
 	/*receive packet from router*/
 	struct sockaddr their_addr;
@@ -207,25 +211,62 @@ struct sockaddr Proxy::proxy_udp_recv() {
 	return their_addr;
 }
 
-void Proxy::router_ready_check() {
-	int i = 0;
-	int ii = 0;
-	struct sockaddr tmp;
-	while ((i+ii) < MAXROUTER) {
-		tmp = proxy_udp_recv();
-		if(tmp.sa_family == AF_INET) {
-			memcpy(&routerSock[i],&tmp,sizeof tmp);
-			printf("__check after storage_\n");
-			sockaddr_info((struct sockaddr*)&routerSock[i]);
-			i++;
-		} else {
-			memcpy(&routerSock6[i],&tmp,sizeof tmp);
-			printf("__check after storage_\n");
-			sockaddr_info((struct sockaddr*)&routerSock6[i]);
-			ii++;
-		}
-		printf("received length %d: %s\n",recvLen,recvBuf);
+void Proxy::proxy_tun_recv() {
+	recvLen = read(tunfd,recvBuf,sizeof recvBuf);
+}
+
+int Proxy::proxy_tcp_connect(int ethIndex, int port) {
+	struct addrinfo hints, *res;
+	char setport[6];
+	int rv;
+
+	memset(&hints, 0, sizeof hints);
+	memset(setport,0,sizeof setport);
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	sprintf(setport,"%d",port);
+	rv = getaddrinfo(inet_ntoa(ethAddr[ethIndex]),setport,&hints,&res);
+	if(rv != 0) {
+		fprintf(stderr, "getaddrinfo:%s\n",gai_strerror(rv));
+		return -1;
 	}
+	rv = connect(tcpfd,res->ai_addr,res->ai_addrlen);
+	if(rv == -1) {
+		perror("proxy:connect");
+		return -1;
+	}
+	return 0;
+}
+
+int Proxy::proxy_select_udp_tun() {
+	fd_set readfd;
+	int maxfd;
+
+	FD_ZERO(&readfd);
+	FD_SET(udpfd,&readfd);
+	FD_SET(tunfd,&readfd);
+	if(udpfd > tunfd) {
+		maxfd = udpfd;
+	} else {
+		maxfd = tunfd;
+	}
+
+	/*wait for traffic*/
+	select(maxfd + 1, &readfd, NULL, NULL, NULL); //never timeout
+
+	if(FD_ISSET(udpfd,&readfd)) {
+		/*for udp*/
+		proxy_udp_recv();
+		printf("proxy:recv %d bytes from UDP\n",recvLen);
+		return 1;
+	}
+	if(FD_ISSET(tunfd,&readfd)) {
+		/*for tunnel*/
+		proxy_tun_recv();
+		printf("proxy:recv %d bytes from tunnel\n",recvLen);
+		return 2;
+	}
+	return 0;
 }
 /*************************moniter****************************************/
 //void Proxy::proxy_routerList() {
@@ -283,3 +324,40 @@ void Proxy::proxy_info() {
 	tun_info();
 	printf("-----------------------------------\n");
 }
+void Proxy::router_info() {
+	int i = 0;
+	while (i < MAXROUTER) {
+		printf("router%d: ",i+1);
+		sockaddr_info((struct sockaddr*)&routerSock[i]);
+		i++;
+	}
+}
+/***********************task method************************************/
+void Proxy::proxy_TOR_run() {
+	proxy_setup();
+	proxy_info();
+	router_ready_check();
+	router_info();
+}
+void Proxy::router_ready_check() {
+	int i = 0;
+	int ii = 0;
+	struct sockaddr tmp;
+	while ((i+ii) < MAXROUTER) {
+		tmp = proxy_udp_recv();
+		if(tmp.sa_family == AF_INET) {
+			memcpy(&routerSock[i],&tmp,sizeof tmp);
+			printf("__check after storage_\n");
+			sockaddr_info((struct sockaddr*)&routerSock[i]);
+			i++;
+		} else {
+			memcpy(&routerSock6[i],&tmp,sizeof tmp);
+			printf("__check after storage_\n");
+			sockaddr_info((struct sockaddr*)&routerSock6[i]);
+			ii++;
+		}
+		printf("received length %d: %s\n",recvLen,recvBuf);
+	}
+	printf("all router are ready\n");
+}
+
