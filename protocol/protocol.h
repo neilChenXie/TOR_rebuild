@@ -37,12 +37,21 @@
 #define	RTRUNCATED	0x39			// 
 #define	SENDME		0x40			// 
 //head file for packet definition
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <linux/if_tun.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <fcntl.h>
+#include <netinet/ip_icmp.h>
+using namespace std;
 
 typedef struct control_pkt {
 	uint16_t CircID;
@@ -66,5 +75,8 @@ typedef struct connectInfo {
 	uint16_t tcp_port;
 	connectInfo *next;
 }connectInfo_t;
+
+/*functions about printf packet information*/
+void print_IP_packet(char *ipPkt); 
 
 #endif

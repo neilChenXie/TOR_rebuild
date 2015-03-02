@@ -27,6 +27,8 @@
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <fcntl.h>
+#include <netinet/ip_icmp.h>
+#include <assert.h>
 using namespace std;
 
 class Proxy {
@@ -66,19 +68,28 @@ public:
 	void tcp_sock_setup(int ethIndex);
 	void tunnel_setup(char *tunName);
 
-	/*router setup*/
+	/*communication*/
+	void create_sendBuf(char*data,int length);
+	void clear_recvBuf();
 	struct sockaddr proxy_udp_recv();
+	void proxy_udp_send(struct sockaddr *dstSock);
 	void proxy_tun_recv();
 	int proxy_tcp_connect(int ethIndex, int port);
 	int proxy_select_udp_tun();
 
-	/*print information*/
+	/*proxy information*/
 	void proxy_info();
 	void sock_info();
 	void ethn_info();
 	void tun_info();
 	void router_info();
 	void sockaddr_info(struct sockaddr* sock);
+	/*packet information*/
+	void print_IP_packet(char *ipPkt);
+	void print_ICMP_packet(char *payload);
+	void print_TCP_packet(char *payload);
+	void print_UDP_packet(char *payload);
+	void print_binary(char *data, int length);
 	//void proxy_routerList();
 	/*specific task related function*/
 	void proxy_TOR_run();

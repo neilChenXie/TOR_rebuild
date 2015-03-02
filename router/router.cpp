@@ -155,6 +155,12 @@ void Router::get_proxy_info() {
 	memcpy(&proxySock[0],res->ai_addr,sizeof proxySock[0]);
 }
 /************************communication**********************************/
+void Router::create_sendBuf(char* data, int length) {
+	assert(data!=NULL);
+	memset(sendBuf, 0, sizeof sendBuf);
+	memcpy(sendBuf,data,length);
+	sendLen = length;
+}
 struct sockaddr Router::router_udp_recv() {
 	struct sockaddr their_sock;
 	socklen_t sockLen = sizeof their_sock;
@@ -184,7 +190,7 @@ void Router::router_udp_send(struct sockaddr *dstSock) {
 }
 /****************************router info******************************/
 void Router::router_info() {
-	printf("-----------Proxy info-------------\n");
+	printf("-----------Router info-------------\n");
 	ethn_info();
 	sock_info();
 	proxy_info();
@@ -223,16 +229,79 @@ void Router::proxy_info() {
 		i++;
 	}
 }
+/*********************packet information*********************/
+void Router::print_IP_packet(char *ipPkt) {
+	struct ip *pktDetail;
+	pktDetail = (struct ip*)ipPkt;
+	char ipDst[20],ipSrc[20];
+	int headLen = pktDetail->ip_hl << 2;
+	int totalLen = ntohs(pktDetail->ip_len);
+	int payloadLen = totalLen - headLen;
+	char *payload =(char *)pktDetail + headLen;
+	printf("________IP packet_______\n");
+	printf("ip version:\t%u\n",pktDetail->ip_v);	
+	printf("header Length:\t%d\n",headLen);
+	printf("type of service:%u\n",pktDetail->ip_tos);
+	printf("total length:\t%d\n",totalLen);
+	printf("identifier:\t%d\n",ntohs(pktDetail->ip_id));
+	//printf("flags:");
+	printf("TTL:\t%u\n",pktDetail->ip_ttl);
+	printf("protocol:\t%u\n",pktDetail->ip_p);
+	printf("destination IP:\t%s\n",inet_ntop(AF_INET,(void*)&pktDetail->ip_dst,ipDst,16));
+	printf("source IP:\t%s\n",inet_ntop(AF_INET,(void*)&pktDetail->ip_src,ipSrc,16));
+	switch(pktDetail->ip_p) {
+		case IPPROTO_ICMP:
+			print_ICMP_packet(payload);
+			break;
+		case IPPROTO_TCP:
+			print_TCP_packet(payload);
+			break;
+		case IPPROTO_UDP:
+			print_UDP_packet(payload);
+			break;
+		default:
+			print_binary(payload,payloadLen);
+	}
+	printf("_________________________\n");
+}
+void Router::print_ICMP_packet(char *payload) {
+	struct icmp *icmph = (struct icmp *)payload;
+	printf("____ICMP packet______\n");
+	printf("icmp: type %d code %d\n",icmph->icmp_type,icmph->icmp_code);
+}
+void Router::print_TCP_packet(char *payload) {
+	printf("____TCP packet______\n");
+}
+void Router::print_UDP_packet(char *payload) {
+	printf("____UDP packet______\n");
+}
+void Router::print_binary(char *data, int length) {
+	printf("____Binary data_______\n");
+	int i = 0;
+	uint8_t *toPr = (uint8_t *)data;
+	printf("data:");
+	while (i < length) {
+		toPr += i;
+		printf("%02X", *toPr);
+		i++;
+	}
+	printf("\n");
+}
 /******************specific task related method************************/
 void Router::router_TOR_run() {
 	router_setup();
 	router_info();
-	send_hello();
-}
-
-void Router::send_hello() {
-	memset(sendBuf, 0, sizeof sendBuf);
-	sprintf(sendBuf,"hello");
-	sendLen = strlen(sendBuf);
+	char msg[6] = "hello";
+	create_sendBuf(msg,6);
+	router_udp_send(&proxySock[0]);
+	int i = 0;
+	while (i < 4) {
+		router_udp_recv();
+		print_IP_packet(recvBuf);
+		i++;
+	}
+	char msg2[9] = "!!!!!!!!";
+	create_sendBuf(msg2,9);
 	router_udp_send(&proxySock[0]);
 }
+

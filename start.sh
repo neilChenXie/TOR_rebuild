@@ -1,6 +1,6 @@
 #!/bin/bash
 TRAFFIC=10.5.51.2/24
-ETH0=192.168.96.136
+ETH0=192.168.96.141
 #setup tunnel and revise routing table
 sudo ip tuntap add dev tun1 mode tun
 sudo ifconfig tun1 $TRAFFIC up

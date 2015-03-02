@@ -1,5 +1,5 @@
 EXE=proxy
-FILES=main.cpp proxy.cpp
+FILES=main.cpp proxy.cpp 
 OBJECT=$(FILES:.cpp=.o)
 CFLAGS=-g -c -Wall
 CC=g++

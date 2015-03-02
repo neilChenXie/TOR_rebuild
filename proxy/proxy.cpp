@@ -191,6 +191,16 @@ void Proxy::proxy_setup() {
 	printf("proxy: socket setup complete\n");
 }
 
+/*******************communication*****************************/
+void Proxy::create_sendBuf(char *data, int length) {
+	assert(data != NULL);
+	memset(sendBuf,0,sizeof sendBuf);
+	sendLen = length;
+	memcpy(sendBuf,data,length);
+}
+void Proxy::clear_recvBuf() {
+	memset(recvBuf,0,sizeof recvBuf);
+}
 struct sockaddr Proxy::proxy_udp_recv() {
 	/*receive packet from router*/
 	struct sockaddr their_addr;
@@ -211,7 +221,18 @@ struct sockaddr Proxy::proxy_udp_recv() {
 	return their_addr;
 }
 
+void Proxy::proxy_udp_send(struct sockaddr* dstSock) {
+	int rv;
+	sockaddr tmp;
+	socklen_t sockLen = sizeof tmp;
+	rv = sendto(udpfd, sendBuf, sendLen, 0, dstSock, sockLen);
+	if(rv == -1) {
+		perror("proxy:UDP sendto\n");
+		exit(1);
+	}
+}
 void Proxy::proxy_tun_recv() {
+	memset(recvBuf, 0, sizeof recvBuf);
 	recvLen = read(tunfd,recvBuf,sizeof recvBuf);
 }
 
@@ -332,12 +353,86 @@ void Proxy::router_info() {
 		i++;
 	}
 }
-/***********************task method************************************/
+/*********************packet information*********************/
+void Proxy::print_IP_packet(char *ipPkt) {
+	struct ip *pktDetail;
+	pktDetail = (struct ip*)ipPkt;
+	char ipDst[20],ipSrc[20];
+	int headLen = pktDetail->ip_hl << 2;
+	int totalLen = ntohs(pktDetail->ip_len);
+	int payloadLen = totalLen - headLen;
+	char *payload =(char *)pktDetail + headLen;
+	printf("________IP packet_______\n");
+	printf("ip version:\t%u\n",pktDetail->ip_v);	
+	printf("header Length:\t%d\n",headLen);
+	printf("type of service:%u\n",pktDetail->ip_tos);
+	printf("total length:\t%d\n",totalLen);
+	printf("identifier:\t%d\n",ntohs(pktDetail->ip_id));
+	//printf("flags:");
+	printf("TTL:\t\t%u\n",pktDetail->ip_ttl);
+	printf("protocol:\t%u\n",pktDetail->ip_p);
+	printf("destination IP:\t%s\n",inet_ntop(AF_INET,(void*)&pktDetail->ip_dst,ipDst,16));
+	printf("source IP:\t%s\n",inet_ntop(AF_INET,(void*)&pktDetail->ip_src,ipSrc,16));
+	switch(pktDetail->ip_p) {
+		case IPPROTO_ICMP:
+			print_ICMP_packet(payload);
+			break;
+		case IPPROTO_TCP:
+			print_TCP_packet(payload);
+			break;
+		case IPPROTO_UDP:
+			print_UDP_packet(payload);
+			break;
+		default:
+			print_binary(payload,payloadLen);
+	}
+	printf("_________________________\n");
+}
+void Proxy::print_ICMP_packet(char *payload) {
+	struct icmp *icmph = (struct icmp *)payload;
+	printf("____ICMP packet______\n");
+	printf("icmp: type %d code %d\n",icmph->icmp_type,icmph->icmp_code);
+}
+void Proxy::print_TCP_packet(char *payload) {
+	printf("____TCP packet______\n");
+}
+void Proxy::print_UDP_packet(char *payload) {
+	printf("____UDP packet______\n");
+}
+void Proxy::print_binary(char *data, int length) {
+	printf("____Binary data_______\n");
+	int i = 0;
+	uint8_t *toPr = (uint8_t *)data;
+	printf("data:");
+	while (i < length) {
+		toPr += i;
+		printf("%02X", *toPr);
+		i++;
+	}
+	printf("\n");
+}
+/***********************task method**************************/
 void Proxy::proxy_TOR_run() {
 	proxy_setup();
 	proxy_info();
 	router_ready_check();
 	router_info();
+	int pktInfo;
+	while(1) {	
+		pktInfo = proxy_select_udp_tun();
+		if(pktInfo == 1) {
+			/*from UDP*/
+			printf("%s\n",recvBuf);
+		}
+		if(pktInfo == 2) {
+			/*from tunnel*/
+			print_IP_packet(recvBuf);
+			/*prepare sendBuf*/
+			create_sendBuf(recvBuf,recvLen);
+			proxy_udp_send((struct sockaddr *)&routerSock[0]);
+			clear_recvBuf();
+		}
+	}
 }
 void Proxy::router_ready_check() {
 	int i = 0;
@@ -347,12 +442,12 @@ void Proxy::router_ready_check() {
 		tmp = proxy_udp_recv();
 		if(tmp.sa_family == AF_INET) {
 			memcpy(&routerSock[i],&tmp,sizeof tmp);
-			printf("__check after storage_\n");
+			//printf("__check after storage_\n");
 			sockaddr_info((struct sockaddr*)&routerSock[i]);
 			i++;
 		} else {
 			memcpy(&routerSock6[i],&tmp,sizeof tmp);
-			printf("__check after storage_\n");
+			//printf("__check after storage_\n");
 			sockaddr_info((struct sockaddr*)&routerSock6[i]);
 			ii++;
 		}

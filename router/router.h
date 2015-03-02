@@ -27,6 +27,7 @@
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <fcntl.h>
+#include <assert.h>
 using namespace std;
 class Router {
 	private:
@@ -62,6 +63,7 @@ class Router {
 		void tcp_sock_setup(int ethIndex);
 		void get_proxy_info();
 		/*communication*/
+		void create_sendBuf(char* data, int length);
 		struct sockaddr router_udp_recv();
 		void router_udp_send(struct sockaddr *dstSock);
 
@@ -71,7 +73,13 @@ class Router {
 		void ethn_info();
 		void proxy_info();
 		void sockaddr_info(struct sockaddr* sock);
+		/*packet information*/
+		void print_IP_packet(char *ipPkt);
+		void print_ICMP_packet(char *payload);
+		void print_TCP_packet(char *payload);
+		void print_UDP_packet(char *payload);
+		void print_binary(char *data, int length);
 		/*specific task related function*/
 		void router_TOR_run();
-		void send_hello();
+		//void send_hello();
 };

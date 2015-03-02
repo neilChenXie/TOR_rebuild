@@ -25,7 +25,7 @@ using namespace std;
 
 int main ( int argc, char *argv[] )
 {
-	Router my_router(1);
+	Router my_router(atoi(argv[1]));
 	//my_router.router_setup();
 	my_router.router_TOR_run();
 	return EXIT_SUCCESS;
