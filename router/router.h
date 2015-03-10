@@ -38,10 +38,10 @@ class Router {
 		int router_index;
 		int udpPort;
 		int tcpPort;
-		int rawPort;
 		int udpfd;
 		int tcpfd;
-		int rawfd;
+		int rawICMPfd;
+		int rawTCPfd;
 		struct in_addr ethAddr[MAXETHADDR]; //VM config related
 		struct sockaddr proxySock[MAXPROXY];
 		/*communication*/
@@ -59,13 +59,17 @@ class Router {
 		Router(int index);
 		/*rotuer setup*/
 		void router_setup();
+		void raw_icmp_sock_setup(int ethIndex);
 		void udp_sock_setup(int ethIndex);
 		void tcp_sock_setup(int ethIndex);
 		void get_proxy_info();
 		/*communication*/
 		void create_sendBuf(char* data, int length);
+		void create_sendBuf_with_IP_payload(const struct ip* data, int len);
 		struct sockaddr router_udp_recv();
 		void router_udp_send(struct sockaddr *dstSock);
+		void router_raw_icmp_send(struct in_addr ip_dst);
+		void router_raw_icmp_recv();
 
 		/*print info*/
 		void router_info();
@@ -74,7 +78,7 @@ class Router {
 		void proxy_info();
 		void sockaddr_info(struct sockaddr* sock);
 		/*packet information*/
-		void print_IP_packet(char *ipPkt);
+		void print_IP_packet(const char *ipPkt);
 		void print_ICMP_packet(char *payload);
 		void print_TCP_packet(char *payload);
 		void print_UDP_packet(char *payload);

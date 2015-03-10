@@ -35,7 +35,7 @@ class Proxy {
 private:
 	static const int MAXBUFLEN = 100;
 	static const int MAXETHADDR = 8;
-	static const int MAXROUTER = 2;
+	static const int MAXROUTER = 1;
 	/*characteristic*/
 	uint16_t udpport;
 	uint16_t tcpport;

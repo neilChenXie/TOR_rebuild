@@ -15,6 +15,7 @@
 // =====================================================================================
 /*class define*/
 #include "router.h"
+#define	DEBUG 1			// 
 using namespace std;
 /***************************private method******************************/
 struct in_addr Router::get_eth_by_name(const char *ethn) {
@@ -56,6 +57,7 @@ Router::Router(int index) {
 }
 
 void Router::router_setup() {
+	raw_icmp_sock_setup(2*router_index+1);
 	udp_sock_setup(2*router_index);
 	tcp_sock_setup(2*router_index);
 	get_proxy_info();
@@ -64,6 +66,27 @@ void Router::router_setup() {
 	printf("router %d: socket setup complete\n",router_index);
 }
 
+void Router::raw_icmp_sock_setup(int ethIndex) {
+	struct addrinfo  *res;
+	int rv;
+
+	rv = getaddrinfo(inet_ntoa(ethAddr[ethIndex]),NULL,NULL,&res);
+	if(rv == -1) {
+		fprintf(stderr, "getaddrinfo error: %s\n",gai_strerror(rv));
+		exit(1);
+	}
+	rawICMPfd = socket(AF_INET,SOCK_RAW,IPPROTO_ICMP);
+	if(rawICMPfd == -1) {
+		perror("router:raw_socket\n");
+		exit(1);
+	}
+	rv = bind(rawICMPfd, res->ai_addr, res->ai_addrlen);
+	if(rv == -1) {
+		perror("router:raw_bind\n");
+		exit(0);
+	}
+	freeaddrinfo(res);
+}
 void Router::udp_sock_setup(int ethIndex) {
 	struct addrinfo hints, *res;
 	char setupPort[5];
@@ -161,6 +184,18 @@ void Router::create_sendBuf(char* data, int length) {
 	memcpy(sendBuf,data,length);
 	sendLen = length;
 }
+void Router::create_sendBuf_with_IP_payload(const struct ip* data, int len) {
+	int headLen = data->ip_hl << 2;
+	int payloadLen = len - headLen;
+	char *payload = (char*) data + headLen;
+
+	memset(sendBuf, 0, sizeof sendBuf);
+	memcpy(sendBuf, (char*)payload, payloadLen);
+	if(DEBUG == 1) {
+		printf("create_sendBuf_with_IP_payload():sendLen %d Bytes\n",payloadLen);
+	}
+	sendLen = payloadLen;
+}
 struct sockaddr Router::router_udp_recv() {
 	struct sockaddr their_sock;
 	socklen_t sockLen = sizeof their_sock;
@@ -188,6 +223,50 @@ void Router::router_udp_send(struct sockaddr *dstSock) {
 		exit(1);
 	}
 }
+
+void Router::router_raw_icmp_send(struct in_addr ip_dst) {
+	struct msghdr msg;
+	struct sockaddr_in tmp;
+	struct iovec iov;
+	int rv;
+
+	tmp.sin_family = AF_INET;
+	tmp.sin_addr = ip_dst;
+	tmp.sin_port = htons(0);
+
+	msg.msg_name = &tmp;
+	msg.msg_namelen = sizeof tmp;
+
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+
+	msg.msg_iov->iov_base = sendBuf;
+	msg.msg_iov->iov_len = sendLen;
+
+	msg.msg_control = 0;
+	msg.msg_controllen = 0;
+	msg.msg_flags = 0;
+
+	rv = sendmsg(rawICMPfd, &msg, 0);
+	if(rv == -1) {
+		fprintf(stderr, "router:raw icmp send error\n");
+		exit(1);
+	}
+	printf("router: raw_ icmp_send %d Bytes\n",rv);
+}
+
+void Router::router_raw_icmp_recv() {
+	struct sockaddr their_addr;
+	socklen_t addrLen = sizeof their_addr;
+
+	memset(recvBuf, 0, sizeof recvBuf);
+	recvLen = recvfrom(rawICMPfd, recvBuf, MAXBUFLEN-1, 0,(struct sockaddr*)&their_addr, &addrLen);
+	if(recvLen == -1) {
+		fprintf(stderr, "router: raw_icmp_recv error\n");
+		exit(1);
+	}
+	printf("router: raw_icmp_recv %d Bytes\n",recvLen);
+}
 /****************************router info******************************/
 void Router::router_info() {
 	printf("-----------Router info-------------\n");
@@ -211,7 +290,8 @@ void Router::sock_info() {
 	printf("____sock info___\n");
 	printf("UDP sockfd: %d port: %d\n", udpfd, udpPort);
 	printf("TCP sockfd: %d port: %d\n", tcpfd, tcpPort);
-	printf("RAW sockfd: %d port: %d\n", rawfd, rawPort);
+	printf("RAW ICMP sockfd: %d\n", rawICMPfd);
+	printf("RAW TCP sockfd: %d\n", rawTCPfd);
 }
 void Router::ethn_info() {
 	int i = 0;
@@ -230,7 +310,7 @@ void Router::proxy_info() {
 	}
 }
 /*********************packet information*********************/
-void Router::print_IP_packet(char *ipPkt) {
+void Router::print_IP_packet(const char *ipPkt) {
 	struct ip *pktDetail;
 	pktDetail = (struct ip*)ipPkt;
 	char ipDst[20],ipSrc[20];
@@ -295,9 +375,14 @@ void Router::router_TOR_run() {
 	create_sendBuf(msg,6);
 	router_udp_send(&proxySock[0]);
 	int i = 0;
-	while (i < 4) {
+	while (i < 1) {
 		router_udp_recv();
 		print_IP_packet(recvBuf);
+		create_sendBuf_with_IP_payload((const struct ip*)recvBuf,recvLen);
+		router_raw_icmp_send(((struct ip*)recvBuf)->ip_dst);
+		router_raw_icmp_recv();
+		print_IP_packet(recvBuf);
+
 		i++;
 	}
 	char msg2[9] = "!!!!!!!!";
