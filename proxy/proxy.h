@@ -74,8 +74,13 @@ public:
 	struct sockaddr proxy_udp_recv();
 	void proxy_udp_send(struct sockaddr *dstSock);
 	void proxy_tun_recv();
+	void proxy_tun_send();
 	int proxy_tcp_connect(int ethIndex, int port);
 	int proxy_select_udp_tun();
+
+	/*revise packet header*/
+	uint16_t ipChecksum(const void *pkt, size_t headLen);
+	void IP_header_revise(struct ip* pkt, struct in_addr dstIP, struct in_addr recIP);
 
 	/*proxy information*/
 	void proxy_info();

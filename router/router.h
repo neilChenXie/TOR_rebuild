@@ -70,6 +70,9 @@ class Router {
 		void router_udp_send(struct sockaddr *dstSock);
 		void router_raw_icmp_send(struct in_addr ip_dst);
 		void router_raw_icmp_recv();
+		/*revise packet header*/
+		uint16_t ipChecksum(const void *pkt, size_t headLen);
+		void IP_header_revise(struct ip* pkt, struct in_addr dstIP, struct in_addr recIP);
 
 		/*print info*/
 		void router_info();

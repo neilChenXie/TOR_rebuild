@@ -235,6 +235,14 @@ void Proxy::proxy_tun_recv() {
 	memset(recvBuf, 0, sizeof recvBuf);
 	recvLen = read(tunfd,recvBuf,sizeof recvBuf);
 }
+void Proxy::proxy_tun_send() {
+	int rv = write(tunfd,sendBuf,sendLen);
+	if(rv == -1) {
+		perror("proxy:proxy_tun_send()\n");
+		close(tunfd);
+		exit(1);
+	}
+}
 
 int Proxy::proxy_tcp_connect(int ethIndex, int port) {
 	struct addrinfo hints, *res;
@@ -288,6 +296,34 @@ int Proxy::proxy_select_udp_tun() {
 		return 2;
 	}
 	return 0;
+}
+
+/**************************revise packet header***********************/
+uint16_t Proxy::ipChecksum(const void *pkt, size_t headLen) {
+	unsigned long sum = 0;
+	uint16_t *ipl;
+	
+	ipl = (uint16_t *)pkt;
+
+	while(headLen > 1) {
+		sum += *ipl;
+		ipl++;
+		if(sum & 0x80000000)
+			sum = (sum & 0xFFFF) + (sum >> 16);
+		headLen -=2;
+	}
+	while(sum >> 16) {
+		sum = (sum & 0xFFFF) + (sum >> 16);
+	}
+	return ~sum;
+}
+void Proxy::IP_header_revise(struct ip* pkt, struct in_addr dstIP, struct in_addr srcIP) {
+	/*change addr*/
+	pkt->ip_dst = dstIP;
+	pkt->ip_src = srcIP;
+	/*recalculate checksum*/
+	memset(&(pkt->ip_sum), 0, sizeof(pkt->ip_sum));
+	pkt->ip_sum = ipChecksum((const void *)pkt,pkt->ip_hl<<2);
 }
 /*************************moniter****************************************/
 //void Proxy::proxy_routerList() {
@@ -422,7 +458,14 @@ void Proxy::proxy_TOR_run() {
 		pktInfo = proxy_select_udp_tun();
 		if(pktInfo == 1) {
 			/*from UDP*/
-			printf("%s\n",recvBuf);
+			print_IP_packet(recvBuf);
+			struct ip* tmp = (struct ip*)recvBuf;
+			struct in_addr newDst;
+			memset(&newDst, 0, sizeof newDst);
+			IP_header_revise(tmp, ethAddr[0], tmp->ip_src);
+			create_sendBuf(recvBuf,recvLen);
+			print_IP_packet(sendBuf);
+			proxy_tun_send();
 		}
 		if(pktInfo == 2) {
 			/*from tunnel*/

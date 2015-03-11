@@ -1,4 +1,4 @@
 #!/bin/bash
 
-find | grep ".*.swp"
-find | grep "*.o"
+find ./ | grep ".*.swp"
+find ./ | grep "*.o"

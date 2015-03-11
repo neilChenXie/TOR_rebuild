@@ -267,6 +267,33 @@ void Router::router_raw_icmp_recv() {
 	}
 	printf("router: raw_icmp_recv %d Bytes\n",recvLen);
 }
+/**************************revise packet header***********************/
+uint16_t Router::ipChecksum(const void *pkt, size_t headLen) {
+	unsigned long sum = 0;
+	uint16_t *ipl;
+	
+	ipl = (uint16_t *)pkt;
+
+	while(headLen > 1) {
+		sum += *ipl;
+		ipl++;
+		if(sum & 0x80000000)
+			sum = (sum & 0xFFFF) + (sum >> 16);
+		headLen -=2;
+	}
+	while(sum >> 16) {
+		sum = (sum & 0xFFFF) + (sum >> 16);
+	}
+	return ~sum;
+}
+void Router::IP_header_revise(struct ip* pkt, struct in_addr dstIP, struct in_addr srcIP) {
+	/*change addr*/
+	pkt->ip_dst = dstIP;
+	pkt->ip_src = srcIP;
+	/*recalculate checksum*/
+	memset(&(pkt->ip_sum), 0, sizeof(pkt->ip_sum));
+	pkt->ip_sum = ipChecksum((const void *)pkt,pkt->ip_hl<<2);
+}
 /****************************router info******************************/
 void Router::router_info() {
 	printf("-----------Router info-------------\n");
@@ -382,11 +409,10 @@ void Router::router_TOR_run() {
 		router_raw_icmp_send(((struct ip*)recvBuf)->ip_dst);
 		router_raw_icmp_recv();
 		print_IP_packet(recvBuf);
-
+		/*send to proxy*/
+		create_sendBuf(recvBuf,recvLen);
+		router_udp_send(&proxySock[0]);
 		i++;
 	}
-	char msg2[9] = "!!!!!!!!";
-	create_sendBuf(msg2,9);
-	router_udp_send(&proxySock[0]);
 }
 
